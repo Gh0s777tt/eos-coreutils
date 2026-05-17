@@ -10,18 +10,27 @@ fn df(path: &str, parser: &arg_parser::ArgParser) -> Result<()> {
     let size = stat.f_blocks as u64 * stat.f_bsize as u64;
     let used = (stat.f_blocks as u64 - stat.f_bfree as u64) * stat.f_bsize as u64;
     let free = stat.f_bavail as u64 * stat.f_bsize as u64;
-    let percent = (100.0 * used as f64 / size as f64) as u64;
+    let percent = if size == 0 {
+        0
+    } else {
+        (100.0 * used as f64 / size as f64) as u64
+    };
+    let display_path = if path.starts_with("/scheme/") {
+        path
+    } else {
+        "/"
+    };
 
     if parser.found("human-readable") {
         println!("{:<10}{:>10}{:>10}{:>10}{:>5}",
-                 path,
+                 display_path,
                  to_human_readable_string(size),
                  to_human_readable_string(used),
                  to_human_readable_string(free),
                  format!("{}%", percent));
     } else {
         println!("{:<10}{:>10}{:>10}{:>10}{:>5}",
-                 path,
+                 display_path,
                  (size + 1023)/1024,
                  (used + 1023)/1024,
                  (free + 1023)/1024,
@@ -72,9 +81,17 @@ fn main() -> Result<()> {
 
     println!("{:<10}{:>10}{:>10}{:>10}{:>5}", "Path", "Size", "Used", "Free", "Use%");
     if parser.args.is_empty() {
-        let file = BufReader::new(File::open("/scheme/sys/scheme")?);
-        for line in file.lines() {
-            let _ = df(&format!("/scheme/{}", line?), &parser);
+        match File::open("/scheme/sys/scheme") {
+            Ok(file) => {
+                let file = BufReader::new(file);
+                for line in file.lines() {
+                    let _ = df(&format!("/scheme/{}", line?), &parser);
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                df("/", &parser)?;
+            }
+            Err(err) => return Err(err.into()),
         }
     } else {
         for path in &parser.args {
